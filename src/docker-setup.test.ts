@@ -12,6 +12,7 @@ type DockerSetupSandbox = {
   scriptPath: string;
   logPath: string;
   binDir: string;
+  chownLogPath: string;
 };
 
 async function writeDockerStub(binDir: string, logPath: string) {
@@ -38,6 +39,16 @@ exit 0
   await writeFile(logPath, "");
 }
 
+async function writeChownStub(binDir: string, logPath: string) {
+  const stub = `#!/usr/bin/env bash
+echo "chown $*" >>"$CHOWN_STUB_LOG"
+exit 0
+`;
+
+  await writeFile(join(binDir, "chown"), stub, { mode: 0o755 });
+  await writeFile(logPath, "");
+}
+
 async function createDockerSetupSandbox(): Promise<DockerSetupSandbox> {
   const rootDir = await mkdtemp(join(tmpdir(), "openclaw-docker-setup-"));
   const scriptPath = join(rootDir, "docker-setup.sh");
@@ -45,6 +56,7 @@ async function createDockerSetupSandbox(): Promise<DockerSetupSandbox> {
   const composePath = join(rootDir, "docker-compose.yml");
   const binDir = join(rootDir, "bin");
   const logPath = join(rootDir, "docker-stub.log");
+  const chownLogPath = join(rootDir, "chown-stub.log");
 
   await copyFile(join(repoRoot, "docker-setup.sh"), scriptPath);
   await chmod(scriptPath, 0o755);
@@ -54,8 +66,9 @@ async function createDockerSetupSandbox(): Promise<DockerSetupSandbox> {
     "services:\n  openclaw-gateway:\n    image: noop\n  openclaw-cli:\n    image: noop\n",
   );
   await writeDockerStub(binDir, logPath);
+  await writeChownStub(binDir, chownLogPath);
 
-  return { rootDir, scriptPath, logPath, binDir };
+  return { rootDir, scriptPath, logPath, binDir, chownLogPath };
 }
 
 function createEnv(
@@ -69,6 +82,7 @@ function createEnv(
     LC_ALL: process.env.LC_ALL,
     TMPDIR: process.env.TMPDIR,
     DOCKER_STUB_LOG: sandbox.logPath,
+    CHOWN_STUB_LOG: sandbox.chownLogPath,
     OPENCLAW_GATEWAY_TOKEN: "test-token",
     OPENCLAW_CONFIG_DIR: join(sandbox.rootDir, "config"),
     OPENCLAW_WORKSPACE_DIR: join(sandbox.rootDir, "openclaw"),
@@ -215,6 +229,26 @@ describe("docker-setup.sh", () => {
 
     expect(syntaxCheck.status).toBe(0);
     expect(syntaxCheck.stderr).not.toContain("declare: -A: invalid option");
+  });
+
+  it("sets ownership of config and workspace directories to node user (uid:gid 1000:1000)", async () => {
+    if (!sandbox) {
+      throw new Error("sandbox missing");
+    }
+
+    const result = spawnSync("bash", [sandbox.scriptPath], {
+      cwd: sandbox.rootDir,
+      env: createEnv(sandbox),
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    expect(result.status).toBe(0);
+
+    // Verify chown was called for both directories
+    const chownLog = await readFile(sandbox.chownLogPath, "utf8");
+    expect(chownLog).toContain("chown -R 1000:1000");
+    expect(chownLog).toMatch(new RegExp(`${sandbox.rootDir}/config`));
+    expect(chownLog).toMatch(new RegExp(`${sandbox.rootDir}/openclaw`));
   });
 
   it("keeps docker-compose gateway command in sync", async () => {
