@@ -228,8 +228,11 @@ If you need Playwright to install system deps, rebuild the image with
 
 ### Permissions + EACCES
 
-The image runs as `node` (uid 1000). If you see permission errors on
-`/home/node/.openclaw`, make sure your host bind mounts are owned by uid 1000.
+The image runs as `node` (uid 1000). The `docker-setup.sh` script automatically sets 
+ownership of config and workspace directories to uid 1000 after creating them.
+
+If you manually create directories or see permission errors on `/home/node/.openclaw`, 
+ensure your host bind mounts are owned by uid 1000.
 
 Example (Linux host):
 
