@@ -83,6 +83,13 @@ fi
 mkdir -p "$OPENCLAW_CONFIG_DIR"
 mkdir -p "$OPENCLAW_WORKSPACE_DIR"
 
+# Fix ownership so the container's 'node' user (uid:gid 1000:1000) can write to these directories.
+# This prevents EACCES errors when the container tries to create subdirectories.
+if command -v chown >/dev/null 2>&1; then
+  chown -R 1000:1000 "$OPENCLAW_CONFIG_DIR" 2>/dev/null || true
+  chown -R 1000:1000 "$OPENCLAW_WORKSPACE_DIR" 2>/dev/null || true
+fi
+
 export OPENCLAW_CONFIG_DIR
 export OPENCLAW_WORKSPACE_DIR
 export OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
